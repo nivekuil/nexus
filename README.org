@@ -1,0 +1,274 @@
+* Nexus
+  Nexus is a dependency injection framework that leverages [[https://pathom3.wsscode.com/][Pathom's]] attribute
+  resolving powers to automatically infer the data and lifecycle needs of a
+  system.  The goal is to keep developer toil to a minimum and programming
+  fun, while keeping the overall system tightly bound together.
+
+  1. Components specify the data they need and are used like a function with
+     their arguments automatically passed to them, Fulcro-style.
+  2. The system specifies exactly which components it wants -- these are parts
+     of your application that are useful in themselves, not just to support
+     some other part of your program -- like a webserver or a Kafka Streams
+     application.
+  3. You provide a minimal amount of initial information, a flat map
+     (representing a Pathom entity) populated by e.g. =(System/getenv)= calls.
+  4. Pathom makes the magic happen, getting both sides exactly what they asked
+     for and turning up your system, without any effort from the programmer!
+
+* Status
+  Lightly tested. I migrated from a ~100 line Integrant/Aero config and I
+  personally enjoy using Nexus a lot more and see no loss in rigor (said with
+  no bias whatsover).
+
+* Reasons to use Nexus
+  - Save time and sanity, align best practices with fun
+  - Should have excellent performance out of the box, with automatic
+    suspend/resume (zero effort, but opinionated) for a fast development
+    feedback loop, and Pathom has built-in async/parallel (forthcoming)
+  - Visualization/timing/traces with Pathom Viz for an graphical overview of
+    complex topologies and debugging (caveat: Viz will get slow/broken when
+    trying to write large values via Transit, which components often are)
+  - Complex behavior can be injected via Pathom plugins
+  - Nothing to learn and little extra code if you already use Pathom. If you
+    don't, I encourage you to consider it anyway as I think Pathom has a place
+    in most substantial applications and gives you huge leverage where it does
+    apply. I think it's probably *the* killer app for Clojure, and I tend to opt
+    into every one of these.
+** Reasons to avoid Nexus
+   - You will probably need to learn Pathom, and Pathom is a large dependency
+     to take on just for this one purpose. But there's a great [[https://pathom3.wsscode.com/docs/tutorial/][tutorial]] and
+     it really is useful!
+
+* Motivation
+  Dependency injection is a good practice, but it is cumbersome to work with,
+  as writing a function that relates to external state in any way entails a
+  round-trip to the controller where you do some manual and redundant data
+  entry. Consider this example of an Integrant function that closes over some
+  configuration info about an external API:
+
+  #+begin_src clojure
+    (defmulti ig/init-key ::call-api [_ {:keys [addr secret]}]
+      (fn [args] (http/get addr (assoc args :secret secret))))
+  #+end_src
+
+  The inversion of control is good to have here, because it means we can easily stub it out for tests and such.
+
+  But say we had some function, happily pure..
+  #+begin_src clojure
+    (defn do-thing [foo bar]
+      (do-something foo)
+      (do-something-else bar))
+  #+end_src
+
+  Called from some other component:
+
+  #+begin_src clojure
+    (defmulti ig/init-key ::call-other [_ {:keys [foo]}]
+      (fn [args]
+        (do-thing foo "bar")
+        (do-other-thing)))
+  #+end_src
+
+  If we one day decided that =do-thing= needs to call that API, we have to turn
+  it into an Integrant key (or pass around a big map, which is arguably even
+  worse) so it can have access to =call-api=:
+
+  #+begin_src clojure
+    (defmulti ig/init-key ::do-thing [{:keys [call-api]}]
+      (fn [foo bar]
+        (call-api {:arg "foo"})
+        (do-something foo)
+        (do-something-else bar)))
+  #+end_src
+
+  And then update the Integrant config:
+  #+begin_src clojure
+    {:my.ns/call-api {:addr "foo" :secret "bar"}
+     :my.ns/do-thing {:call-api #ig/ref :my.ns/call-api}
+     :my.ns/call-other  {:do-thing #ig/ref :my.ns/do-thing
+                         :foo      "foo"}}
+  #+end_src
+
+  And then change =call-other=:
+  #+begin_src clojure
+    (defmulti ig/init-key ::call-other [_ {:keys [do-thing foo]}]
+      (fn [args]
+        (do-thing foo "bar")
+        (do-other-thing)))
+  #+end_src
+  The Integrant config is eventually going to control a lot of the program,
+  putting many unrelated concerns all in one place and forcing the programmer
+  to be explicit to an end that doesn't really merit the effort.
+* Using Nexus
+  With Nexus, we can instead do it like this:
+  #+begin_src clojure
+    (ns my.ns
+      (:require [com.nivekuil.nexus :as nx]))
+
+    (nx/def call-api [{::keys [addr secret]}]
+      {}
+      (fn [args] (http/get addr (assoc args :secret secret))))
+
+    (nx/def do-thing [{::keys [call-api]}]
+      {}
+      (fn [foo bar]
+        (call-api {:arg "foo"})
+        (do-something foo)
+        (do-something-else bar)))
+
+    (nx/def call-other [{::keys [do-thing foo]}]
+      {}
+      (fn [args]
+        (do-thing foo "bar")
+        (do-other-thing)))
+
+    (nx/def server [{::keys [call-api call-other opts]}]
+      {}
+      (start-server (register-apis [call-api call-other]) opts))
+  #+end_src
+
+  =do-thing= itself knows that it needs =call-api=, and =call-other= is left
+  alone. There is no need to alter a config map to add a component.
+
+  To start this system, we call =nx/init= with a config map (really a Pathom
+  entity) and the targets we want to turn up. Note that the target is
+  specified by a keyword corresponding to the fully-qualified name of the
+  symbol in =nx/def=.
+  #+begin_src clojure
+    (def sysenv
+      (nx/init #:my.ns{:addr   "foo"
+                       :secret (slurp "secret.txt")
+                       :foo    "foo"
+                       :opts   {:port 80}}
+               [:my.ns/server]))
+  #+end_src
+
+  As you can see, initializing our system only needs to provide top-level
+  information and specify top-level components. Ultimately, the system is
+  trying to start a server. The programmer does not specify all the data the
+  server needs to start, because the server component itself already knows
+  what it needs, and so on recursively.  If any component on the critical path
+  does not have all the data it needs, the system will not start and an error
+  will be thrown.
+
+  We also may want to do some cleanup action when we want to stop the
+  system. This is done with a =::nx/halt= key whose value is a function that
+  takes the return value of the =nx/def= block and does something to it.
+  #+begin_src clojure
+    (nx/def server [{::keys [call-api call-other opts]}]
+      {::nx/halt stop-server} ;; single arg function
+      (start-server (register-apis [call-api call-other])))
+  #+end_src
+
+  Then we can halt the system with the value returned from =nx/init=
+  #+begin_src clojure
+    (nx/halt! sysenv)
+  #+end_src
+  Note that =nx/def= is essentially just =pco/defresolver=. The map that follows
+  the args is the same one where you normally would place =::pco/input= and most
+  Pathom attributes are valid. The exception is =::pco/output= as the returned
+  attribute is always derived from the resolver name.
+** Resetting
+   For developer convenience, there is also a =nx/reset= function (for
+   REPL/reloaded workflow usage, see below) that you can call on the =sysenv=
+   returned from =nx/init= along with the targets (just like =p.eql/process=),
+   which will skip components that have not changed. A component has changed
+   when either its inputs or its /body/ has changed. Unlike Integrant, Nexus
+   components are defined by a macro so Nexus can actually detect when the
+   source code of a component has changed for suspend/resume invalidation
+   purposes!
+
+   This caching is on by default.  To always reload a component (something you
+   want if it references a protocol, since those are recreated on load) you
+   can set the keyword =::nx/cache?= to =false= in the component options map.  To
+   turn off the cache by default, set the same keyword in the env (using
+   =:env-transform= in init) to =false=.
+
+   While this opinionated behavior should save a decent amount of effort (cf.
+   [[https://github.com/weavejester/integrant][Integrant's readme]]) it is not as flexible and efforts to improve it should
+   it prove deficient are welcome.
+
+* Compared to Integrant
+  Integrant complects the shape of your system with the information it needs.
+  With Integrant, you provide a tree, represented by a map or EDN file.  With
+  Nexus, you take the component-local code you've already written (like the
+  genetic code stored in a seed), give it the conditions under which it will
+  sprout (a flat map of usually namespace-qualified attributes), and Pathom
+  grows the tree for you.
+
+  In Integrant, structure is nested and components take unqualified arguments.
+  In Nexus, structure is flat and components take qualified arguments,
+  i.e. names with globally consistent referents. Whereas Integrant uses
+  hierarchical relationships, a Nexus config is just a Pathom entity, which
+  provides all the up-front information necessary for any component to connect
+  to any other component in a flat map. There is no external schema that
+  pre-determines the connections that can be made.
+
+  Nexus really is just a few lines of code making use of Pathom. This means if
+  you know Pathom, you already know 99% of Nexus. If you don't, then you might
+  want to learn it anyway because Pathom is an incredibly versatile tool, and
+  quite addicting to use once you get into the logic programming mode of
+  thinking.
+
+  We can also take advantage of all Pathom's features. Notably, parallel runs
+  (not yet in Pathom 3), plugins (Nexus itself is mostly just a plugin), and
+  Pathom Viz, for a top-level graphical view of the system and to trace
+  execution times to debug slow-starting components.
+
+  Integrant is often used with [[https://github.com/juxt/aero][Aero]], which has its merits but more advanced
+  usage entails thinking in an M-expression style DSL based on EDN tags.
+  While there is value in having a cut down language for configuration, I
+  found Aero's benefits too marginal to justify this extra weight.  You can
+  still use Nexus with Aero if you choose to, of course.
+* Namespaces
+
+  deps.edn (sha only for now)
+  #+begin_src clojure
+    {:deps
+     {com.nivekuil/nexus {:git/url "https://github.com/nivekuil/nexus"
+                          :sha     "..."}}}
+  #+end_src
+
+  require
+  #+begin_src clojure
+    (:require [com.nivekuil.nexus :as nx])
+  #+end_src
+
+* clj-kondo
+  In .clj-kondo/config.edn:
+  #+begin_src clojure
+    {:lint-as {com.nivekuil.nexus/def clojure.core/defn}}
+  #+end_src
+* Reloaded workflow
+  In =.dir-locals.el=
+  #+begin_src emacs-lisp
+    (cider-ns-refresh-after-fn . "user/go")
+  #+end_src
+
+  In =dev/user.clj=
+  #+begin_src clojure
+    (clojure.tools.namespace.repl/set-refresh-dirs "src/main")
+
+    (defn go []
+      (let [config  (system/config :dev) ;; the initial config map/pathom entity
+            targets [:app.server/server :app.logger/logger]]
+        (nx/go config targets {})))
+  #+end_src
+* Logging
+   To get a better idea of what Nexus is doing under the hood, set this
+   somewhere in your repl: =(alter-var-root #'nx/log? (constantly true))=
+
+* Further thoughts
+  Take care when relying on dynamic requires for dependencies alone, without
+  requiring the namespace explicitly. This can be convenient for breaking
+  cyclical dependencies but can cause problems with AOT and tools.refresh. You
+  may need to explicitly require namespaces or things can be missing at
+  runtime (though Nexus will fail quickly and loudly).
+
+  # For any Deleuzians, Nexus can be understood as working like a rhizome, where
+  # any component can be connected to any other without having to be
+  # pre-structured by a transcendent form (cf. DeLanda on cartesian vs
+  # riemannian geometry).
+  TODO:
+  - cljs? should be easy since Pathom natively supports it
+  - can ::nx/halt close over params?
