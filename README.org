@@ -16,9 +16,12 @@
      for and turning up your system, without any effort from the programmer!
 
 * Status
-  Lightly tested. I migrated from a ~100 line Integrant/Aero config and I
-  personally enjoy using Nexus a lot more and see no loss in rigor (said with
-  no bias whatsover).
+  Lightly tested. I migrated from a ~100 line Integrant/Aero config having
+  been frustrated with how slow the reloads were getting and saw no way of
+  optimizing Integrant, and have been pleased with how much faster the
+  development experience with Nexus is.  It fades into the background and lets
+  me write as if any component already has all the data it needs, without
+  round-trips to a master config.
 
 * Reasons to use Nexus
   - Save time and sanity, align best practices with fun
@@ -215,6 +218,14 @@
   Pathom Viz, for a top-level graphical view of the system and to trace
   execution times to debug slow-starting components.
 
+  That brings me to the most significant reason I wrote Nexus, out of anger
+  with Integrant.  Integrant can do suspend/resume, but it has to be manually
+  wired in, and if you do it based on inputs to the component then the
+  component will not refresh even if you change the body of the component
+  itself, if the inputs haven't changed.  This forces you be careful about
+  inconsequential things, juggling several more things during development, and
+  is not fun.
+
   Integrant is often used with [[https://github.com/juxt/aero][Aero]], which has its merits but more advanced
   usage entails thinking in an M-expression style DSL based on EDN tags.
   While there is value in having a cut down language for configuration, I
@@ -271,4 +282,5 @@
   # riemannian geometry).
   TODO:
   - cljs? should be easy since Pathom natively supports it
+  - think about how derived components would work -- good enough already?
   - can ::nx/halt close over params?
