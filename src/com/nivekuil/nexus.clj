@@ -2,14 +2,15 @@
   (:require [com.wsscode.pathom3.connect.operation :as pco]
             [com.wsscode.misc.macros :refer [full-symbol]]
             [clojure.spec.alpha :as s]
-            [com.wsscode.pathom3.interface.eql :as p.eql]
+            [com.wsscode.pathom3.interface.async.eql :as p.a.eql]
             [com.wsscode.pathom3.connect.indexes :as pci]
             [com.wsscode.pathom3.connect.runner :as pcr]
             [com.wsscode.pathom3.connect.planner :as pcp]
             [com.wsscode.pathom3.plugin :as p.plugin]
             [clojure.set :as set]
             [com.nivekuil.nexus :as nx]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [taoensso.timbre :as log]))
 
 (defonce resolvers
   #_"The currently loaded resolvers. This is populated by
@@ -61,7 +62,11 @@ run again."
        ;; but we want to treat it as being semantically equal
        (swap! bodies assoc ~kw '~body)
 
-       (def ~name ~@defdoc resolver#))))
+       ;; Deliberately omitted.  If defined it enables code navigation but
+       ;; it's too easy to accidentally use the resolver instead of the
+       ;; resolved value.
+       #_(def ~name ~@defdoc resolver#)
+       ~kw)))
 
 (defn halt! [sysenv]
   (when sysenv
@@ -78,29 +83,40 @@ run again."
 
        (let [node        (::pcp/node env)
              kw          (keyword (::pco/op-name node))
+             config      (get-in env [::pci/index-resolvers (symbol kw) :config])
              new-body    (get @bodies kw)
              update-env! (fn [res]
                            (swap! (::running env) merge res)
                            (swap! (::cache-keys env) assoc
                                   kw {:old-input input
-                                      :old-body  new-body})
+                                      :old-body  new-body
+                                      :old-config config})
                            (swap! (::halt-thunks env) assoc
-                                  kw (some-> (get-in env [::pci/index-resolvers (symbol kw) :config ::halt])
-                                             (partial (get res kw)))))]
+                                  kw (when-let [resolver (::halt config)]
+                                       #(try (resolver (get res kw))
+                                             (catch Exception e
+                                               (log "error halting" kw)
+                                               (throw e))))))]
          (log "entering" kw)
          (if-let [cache-map (some-> env ::cache-keys deref kw)]
-           (let [{:keys [old-input old-body]} cache-map
+           (let [{:keys [old-input old-body old-config]} cache-map
                  old-result                   (-> env ::running deref kw)]
+             #_(log/spy (-> env ::pcp/nodes (::pcp/node-id node)))
+
              (if (and (= old-input input)
                       (= old-body new-body)
-                      (::nx/cache? node (::nx/cache? env true)))
+                      (= old-config config)
+                      (::nx/cache? config (::nx/cache? env true)))
                (do (log "hit reset cache for" kw)
                    {kw old-result})
                (do
                  (log "stale cache for" kw)
                  (when-let [halt-fn (-> env ::halt-thunks deref kw)]
                    (halt-fn))
-                 (doto (resolve env input) update-env!))))
+                 (let [res (resolve env input)]
+                   (when (::nx/debug? config) (log "debug" node res))
+                   (update-env! res)
+                   res))))
 
            (let [res (resolve env input)]
              (update-env! res)
@@ -151,12 +167,13 @@ run again."
   (log "requiring done, available: " (mapv key @resolvers))
   (let [env (-> (pci/register (mapv val @resolvers))
                 (p.plugin/register initializer)
-                (assoc ::halt-path (atom ())
+                (assoc ::p.a.eql/parallel? true
+                       ::halt-path (atom ())
                        ::halt-thunks (atom {})
                        ::cache-keys (atom {})
                        ::running (atom {}))
                 env-transform)]
-    (try (p.eql/process env config targets)
+    (try @(p.a.eql/process env config targets)
          (catch Exception e (halt! env) (throw e)))
 
     env))
@@ -168,7 +185,7 @@ run again."
     #_#_(require 'clj-async-profiler.core)
     (clj-async-profiler.core/profile
      (p.eql/process newenv config targets))
-    (p.eql/process newenv config targets)
+    @(p.a.eql/process newenv config targets)
     newenv))
 
 
