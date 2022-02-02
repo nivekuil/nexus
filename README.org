@@ -190,7 +190,8 @@
    While this opinionated behavior should save a decent amount of effort (cf.
    [[https://github.com/weavejester/integrant][Integrant's readme]]) it is not as flexible and efforts to improve it should
    it prove deficient are welcome.
-
+** Debugging
+   A resolver with =::nx/debug?= will log its value whenever it is evaluated.
 * Compared to Integrant
   Integrant complects the shape of your system with the information it needs.
   With Integrant, you provide a tree, represented by a map or EDN file.  With
@@ -227,10 +228,13 @@
   is not fun.
 
   Integrant is often used with [[https://github.com/juxt/aero][Aero]], which has its merits but more advanced
-  usage entails thinking in an M-expression style DSL based on EDN tags.
-  While there is value in having a cut down language for configuration, I
-  found Aero's benefits too marginal to justify this extra weight.  You can
-  still use Nexus with Aero if you choose to, of course.
+  usage entails thinking in an M-expression style DSL based on EDN tags.  As
+  such, plain Clojure actually ends up being more data-centric than what is
+  superfically EDN, insofar as the appeal of data over code is a matter of
+  data being more reusable, more general, or less opinionated about its
+  environment.  So while there is value in having a cut down language for
+  configuration, I found Aero's benefits too marginal to justify this extra
+  weight.  You can still use Nexus with Aero if you choose to, of course.
 * Namespaces
 
   deps.edn (sha only for now)
@@ -269,13 +273,21 @@
    To get a better idea of what Nexus is doing under the hood, set this
    somewhere in your repl: =(alter-var-root #'nx/log? (constantly true))=
 
-* Further thoughts
+* Caveats
   Take care when relying on dynamic requires for dependencies alone, without
   requiring the namespace explicitly. This can be convenient for breaking
   cyclical dependencies but can cause problems with AOT and tools.refresh. You
   may need to explicitly require namespaces or things can be missing at
   runtime (though Nexus will fail quickly and loudly).
 
+  You might run into stale caches.  The reset logic currently looks at the
+  body of `nx/def`s to determine whether it should be reloaded.  If the code
+  inside `nx/def` references something outside, and only that outside thing
+  changes, Nexus will not know to reload the `nx/def`s that are referencing
+  that outside thing.  You can avoid this by making `nx/def`s reference
+  nothing (and therefore close over nothing) outside its own declared inputs,
+  or figure out a way to improve this library so that it can account for
+  external references.
   # For any Deleuzians, Nexus can be understood as working like a rhizome, where
   # any component can be connected to any other without having to be
   # pre-structured by a transcendent form (cf. DeLanda on cartesian vs
