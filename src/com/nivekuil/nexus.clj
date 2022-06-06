@@ -10,7 +10,8 @@
             [clojure.set :as set]
             [com.nivekuil.nexus :as nx]
             [clojure.string :as str]
-            [taoensso.timbre :as log]))
+            [taoensso.timbre :as log]
+            [promesa.core :as p]))
 
 (defonce resolvers
   #_"The currently loaded resolvers. This is populated by
@@ -25,6 +26,7 @@ run again."
   (atom {}))
 
 (defonce log? false)
+
 (defn log [& forms]
   (when log? (println (str/join " " (conj forms "nexus:")))))
 
@@ -72,7 +74,8 @@ run again."
   (when sysenv
     (doseq [kw (some-> sysenv ::halt-path deref)]
       (when-let [halt-thunk (some-> sysenv ::halt-thunks deref kw)]
-        (log "halting:" kw "=>" (halt-thunk))))
+        (log "halting:" kw)
+        (log "halted: " kw "=>" (halt-thunk))))
     (reset! (::running sysenv) {})
     (reset! (::halt-path sysenv) ())))
 
@@ -80,7 +83,6 @@ run again."
   {::pcr/wrap-resolve
    (fn [resolve]
      (fn [env input]
-
        (let [node        (::pcp/node env)
              kw          (keyword (::pco/op-name node))
              config      (get-in env [::pci/index-resolvers (symbol kw) :config])
@@ -92,8 +94,8 @@ run again."
                                       :old-body  new-body
                                       :old-config config})
                            (swap! (::halt-thunks env) assoc
-                                  kw (when-let [resolver (::halt config)]
-                                       #(try (resolver (get res kw))
+                                  kw (when-let [halt-fn (::halt config)]
+                                       #(try (halt-fn (get res kw))
                                              (catch Exception e
                                                (log "error halting" kw)
                                                (throw e))))))]
@@ -117,12 +119,18 @@ run again."
                    (when (::nx/debug? config) (log "debug" node res))
                    (update-env! res)
                    res))))
-
-           (let [res (resolve env input)]
-             (update-env! res)
-             (swap! (::halt-path env) conj kw)
-             (log "leaving" kw)
-             res)))))})
+           (p/let [p (-> (p/let [res (p/future (resolve env input))]
+                           (update-env! res)
+                           (swap! (::halt-path env) conj kw)
+                           (log "leaving" kw)
+                           res)
+                         (p/catch' (fn [e] (throw (ex-info (str "Exception in " kw)
+                                                         {:message        (ex-message e)
+                                                          :proximal-cause (ex-cause e)
+                                                          :distal-cause   (ex-cause (ex-cause e))})))))]
+             
+             (log "done with" kw)
+             p)))))})
 
 (defn- resolvers->nses
   "Get the namespaces of resolvers inputs"
@@ -175,7 +183,6 @@ run again."
                 env-transform)]
     (try @(p.a.eql/process env config targets)
          (catch Exception e (halt! env) (throw e)))
-
     env))
 
 (defn reset [env config targets]
