@@ -15,6 +15,22 @@
   4. Pathom makes the magic happen, getting both sides exactly what they asked
      for and turning up your system, without any effort from the programmer!
 
+* Rationale
+
+** Pros
+  - Learning efficiency.  99% just Pathom, nothing more to learn, no additional cognitive overhead.
+  - Ergonomics.  Not having to pass data around and automatic suspend/resume lets you iterate faster.
+  - Performance.  Uses Pathom's parallel runner to turn up the system in parallel.
+  - Debugging. Plug in Pathom Viz for an graphical overview of complex topologies and traces (caveat: Viz may get slow/broken when
+    trying to write large values via Transit, which components often are)
+  - Extensibility.  Complex behavior can be injected via Pathom plugins (Nexus itself is mostly just a plugin).
+  - Scope.  Feed components with data over the network, through federated EQL parsers instead of config files or environment variables with Pathom 3's dynamic resolvers.
+** Cons
+   - You will need to learn Pathom, and Pathom is a large dependency to take
+     on just for this one purpose. But there's a great [[https://pathom3.wsscode.com/docs/tutorial/][tutorial]] and it really
+     is useful, probably Clojure's killer app (and I try all of these).
+
+
 * Status
   Lightly tested. I migrated from a ~100 line Integrant/Aero config having
   been frustrated with how slow the reloads were getting and saw no way of
@@ -23,26 +39,8 @@
   me write as if any component already has all the data it needs, without
   round-trips to a master config.
 
-* Reasons to use Nexus
-  - Save time and sanity, align best practices with fun
-  - Should have excellent performance out of the box, with automatic
-    suspend/resume (zero effort, but opinionated) for a fast development
-    feedback loop, and Pathom has built-in async/parallel (forthcoming)
-  - Visualization/timing/traces with Pathom Viz for an graphical overview of
-    complex topologies and debugging (caveat: Viz will get slow/broken when
-    trying to write large values via Transit, which components often are)
-  - Complex behavior can be injected via Pathom plugins
-  - Nothing to learn and little extra code if you already use Pathom. If you
-    don't, I encourage you to consider it anyway as I think Pathom has a place
-    in most substantial applications and gives you huge leverage where it does
-    apply. I think it's probably *the* killer app for Clojure, and I tend to opt
-    into every one of these.
-** Reasons to avoid Nexus
-   - You will probably need to learn Pathom, and Pathom is a large dependency
-     to take on just for this one purpose. But there's a great [[https://pathom3.wsscode.com/docs/tutorial/][tutorial]] and
-     it really is useful!
 
-* Motivation
+* Motivation (why not Integrant?)
   Dependency injection is a good practice, but it is cumbersome to work with,
   as writing a function that relates to external state in any way entails a
   round-trip to the controller where you do some manual and redundant data
