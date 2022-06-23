@@ -11,6 +11,7 @@
             [com.nivekuil.nexus :as nx]
             [clojure.string :as str]
             [taoensso.timbre :as log]
+            [clojure.data]
             [promesa.core :as p]))
 
 (defonce resolvers
@@ -28,7 +29,7 @@ run again."
 (defonce log? false)
 
 (defn log [& forms]
-  (when log? (println (str/join " " (conj forms "nexus:")))))
+  (when log? (println (str/join " " (conj (map pr-str forms) "nexus:")))))
 
 (defmacro def
   "Basically `pco/defresolver` but with some magic, like automatically
@@ -114,7 +115,16 @@ run again."
                    {kw old-result})
                (do
                  (log "stale cache for" kw)
+                 (when (::nx/debug? config)
+                   (when (not= old-body new-body)
+                     (log kw "old body:" old-body)
+                     (log kw "new body:" new-body))
+                   (when (not= old-input input)
+                     (log kw "input differs: " (take 2 (clojure.data/diff old-input input))))
+                   (when (not= old-config config)
+                     (log kw "config differs: " (take 2 (clojure.data/diff old-config config)))))
                  (when-let [halt-fn (-> env ::halt-thunks deref kw)]
+                   (log "halting before restart: " kw)
                    (halt-fn))
                  (let [res (resolve env input)]
                    (when (::nx/debug? config) (log "debug" node res))
