@@ -86,13 +86,14 @@ run again."
        (let [node        (::pcp/node env)
              kw          (keyword (::pco/op-name node))
              config      (get-in env [::pci/index-resolvers (symbol kw) :config])
+             config-str  (str config)
              new-body    (get @bodies kw)
              update-env! (fn [res]
                            (swap! (::running env) merge res)
                            (swap! (::cache-keys env) assoc
                                   kw {:old-input input
                                       :old-body  new-body
-                                      :old-config config})
+                                      :old-config config-str})
                            (swap! (::halt-thunks env) assoc
                                   kw (when-let [halt-fn (::halt config)]
                                        #(try (halt-fn (get res kw))
@@ -107,7 +108,7 @@ run again."
 
              (if (and (= old-input input)
                       (= old-body new-body)
-                      (= old-config config)
+                      (= old-config config-str)
                       (::nx/cache? config (::nx/cache? env true)))
                (do (log "hit reset cache for" kw)
                    {kw old-result})
