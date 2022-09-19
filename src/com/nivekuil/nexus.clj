@@ -198,7 +198,13 @@ run again."
 
 (defn reset [env config targets]
   (let [newenv (-> env
-                   (dissoc ::pci/index-resolvers)
+                   (dissoc ::pci/index-resolvers
+                           ::pci/index-attributes
+                           ::pci/index-oir
+                           ::pci/index-io
+                           ::pci/index-mutations
+                           ::pci/index-source-id
+                           ::pci/indexes)
                    (pci/register (mapv val @resolvers)))]
     #_#_(require 'clj-async-profiler.core)
     (clj-async-profiler.core/profile
