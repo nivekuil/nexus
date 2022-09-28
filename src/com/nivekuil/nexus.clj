@@ -10,7 +10,6 @@
             [clojure.set :as set]
             [com.nivekuil.nexus :as nx]
             [clojure.string :as str]
-            [taoensso.timbre :as log]
             [clojure.data]
             [promesa.core :as p]))
 
