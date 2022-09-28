@@ -120,8 +120,8 @@ run again."
                      (log kw "new body:" new-body))
                    (when (not= old-input input)
                      (log kw "input differs: " (take 2 (clojure.data/diff old-input input))))
-                   (when (not= old-config config)
-                     (log kw "config differs: " (take 2 (clojure.data/diff old-config config)))))
+                   (when (not= old-config config-str)
+                     (log kw "config differs: " (take 2 (clojure.data/diff old-config config-str)))))
                  (when-let [halt-fn (-> env ::halt-thunks deref kw)]
                    (log "halting before restart: " kw)
                    (halt-fn))
