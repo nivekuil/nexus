@@ -135,9 +135,8 @@ run again."
                            (log "leaving" kw)
                            res)
                          (p/catch' (fn [e] (throw (ex-info (str "Exception in " kw)
-                                                         {:message        (ex-message e)
-                                                          :proximal-cause (ex-cause e)
-                                                          :distal-cause   (ex-cause (ex-cause e))})))))]
+                                                         {}
+                                                         e)))))]
              
              (log "done with" kw)
              p)))))})
