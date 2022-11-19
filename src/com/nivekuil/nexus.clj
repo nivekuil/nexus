@@ -11,7 +11,8 @@
             [com.nivekuil.nexus :as nx]
             [clojure.string :as str]
             [clojure.data]
-            [promesa.core :as p]))
+            [promesa.core :as p]
+            [com.wsscode.pathom3.error :as p.error]))
 
 (defonce resolvers
   #_"The currently loaded resolvers. This is populated by
@@ -134,10 +135,10 @@ run again."
                            (swap! (::halt-path env) conj kw)
                            (log "leaving" kw)
                            res)
-                         (p/catch' (fn [e] (throw (ex-info (str "Exception in " kw)
-                                                         {}
-                                                         e)))))]
-             
+                         (p/catch' (fn [e]
+                                     (log "Exception in " kw "input:" input " exception: " e)
+                                     (throw (ex-info (str "Exception in " kw) {} e)))))]
+
              (log "done with" kw)
              p)))))})
 
@@ -185,13 +186,23 @@ run again."
   (let [env (-> (pci/register (mapv val @resolvers))
                 (p.plugin/register initializer)
                 (assoc ::p.a.eql/parallel? true
+                       ::p.error/lenient-mode? true ;; see note below
                        ::halt-path (atom ())
                        ::halt-thunks (atom {})
                        ::cache-keys (atom {})
                        ::running (atom {}))
-                env-transform)]
-    (try @(p.a.eql/process env config targets)
-         (catch Exception e (halt! env) (throw e)))
+                env-transform)
+        res @(p.a.eql/process env config targets)]
+
+    ;; Pathom doesn't give us thread supervision.  What can happen is one
+    ;; resolver throws an exception, but child threads are still running.
+    ;; Without lenient mode, if an exception is thrown pathom will stop
+    ;; execution immediately and we can be left in an intermediate state,
+    ;; e.g. not properly cleaning up resources because we called halt! while
+    ;; some child threads are still running.
+    (when-let [errors (::pcr/attribute-errors res)]
+      (halt! env)
+      (throw (ex-info (str "system startup failed: " (str/join " " (map key errors))) errors)))
     env))
 
 (defn reset [env config targets]
