@@ -272,6 +272,11 @@
    somewhere in your repl: =(alter-var-root #'nx/log? (constantly true))=
 
 * Caveats
+  The =::nx/halt= cleanup function is just an entry in the Pathom resolver
+  config, like =::pco/output=, =::pco/input= etc.  This is evaluated at resolver
+  definition time and does not close over the input -- it only takes the
+  resolver return value!
+
   Take care when relying on dynamic requires for dependencies alone, without
   requiring the namespace explicitly. This can be convenient for breaking
   cyclical dependencies but can cause problems with AOT and tools.refresh. You
