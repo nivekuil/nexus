@@ -130,7 +130,7 @@ run again."
                    (when (::nx/debug? config) (log "debug" node res))
                    (update-env! res)
                    res))))
-           (p/let [p (-> (p/let [res (p/future (resolve env input))]
+           (p/let [p (-> (p/let [res (resolve env input)]
                            (update-env! res)
                            (swap! (::halt-path env) conj kw)
                            (log "leaving" kw)
