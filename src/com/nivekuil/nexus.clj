@@ -177,7 +177,8 @@ run again."
     (locking clojure.lang.RT/REQUIRE_LOCK
       (doseq [ns nses]
         (log "requiring" ns)
-        (try (require ns) (catch Exception e (log e)))))
+        (try (require [ns :reload true])
+             (catch java.io.FileNotFoundException e (log e)))))
 
     (when-let [new-things (not-empty (set/difference (resolvers->nses @resolvers) nses))]
       (recur (set/union new-things nses))))
