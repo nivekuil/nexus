@@ -78,12 +78,13 @@ run again."
         (log "halting:" kw)
         (log "halted: " kw "=>" (halt-thunk))))
     (reset! (::running sysenv) {})
-    (reset! (::halt-path sysenv) ())))
+    (reset! (::halt-path sysenv) ())
+    (reset! (::errors sysenv) [])))
 
 (p.plugin/defplugin initializer
   {::pcr/wrap-resolve
-   (fn [resolve]
-     (fn [env input]
+   (fn plugin [resolve]
+     (fn  [env input]
        (let [node        (::pcp/node env)
              kw          (keyword (::pco/op-name node))
              config      (get-in env [::pci/index-resolvers (symbol kw) :config])
@@ -92,19 +93,20 @@ run again."
              update-env! (fn [res]
                            (swap! (::running env) merge res)
                            (swap! (::cache-keys env) assoc
-                                  kw {:old-input input
-                                      :old-body  new-body
+                                  kw {:old-input  input
+                                      :old-body   new-body
                                       :old-config config-str})
                            (swap! (::halt-thunks env) assoc
                                   kw (when-let [halt-fn (::halt config)]
                                        #(try (halt-fn (get res kw))
                                              (catch Exception e
                                                (log "error halting" kw)
+                                               (swap! (::errors env) conj e)
                                                (throw e))))))]
          (log "entering" kw)
          (if-let [cache-map (some-> env ::cache-keys deref kw)]
            (let [{:keys [old-input old-body old-config]} cache-map
-                 old-result                   (-> env ::running deref kw)]
+                 old-result                              (-> env ::running deref kw)]
              #_(log/spy (-> env ::pcp/nodes (::pcp/node-id node)))
 
              (if (and (= old-input input)
@@ -191,7 +193,8 @@ run again."
                        ::halt-path (atom ())
                        ::halt-thunks (atom {})
                        ::cache-keys (atom {})
-                       ::running (atom {}))
+                       ::running (atom {})
+                       ::errors (atom []))
                 env-transform)
         res @(p.a.eql/process env config targets)]
 
@@ -201,13 +204,17 @@ run again."
     ;; execution immediately and we can be left in an intermediate state,
     ;; e.g. not properly cleaning up resources because we called halt! while
     ;; some child threads are still running.
-    (when-let [errors (::pcr/attribute-errors res)]
-      (halt! env)
-      (throw (ex-info (str "system startup failed: " (str/join " " (map key errors))) errors)))
+    (when-let [pathom-errors (::pcr/attribute-errors res)]
+      (let [resolver-errors @(::errors env)]
+        (halt! env)
+        (throw (ex-info (str "system startup failed: " (str/join " " (map key pathom-errors)))
+                        {:resolver-errors resolver-errors
+                         :pathom-errors   pathom-errors}))))
     env))
 
 (defn reset [env config targets]
   (let [newenv (-> env
+                   (dissoc ::p.error/lenient-mode?)
                    (dissoc ::pci/index-resolvers
                            ::pci/index-attributes
                            ::pci/index-oir
@@ -219,7 +226,10 @@ run again."
     #_#_(require 'clj-async-profiler.core)
     (clj-async-profiler.core/profile
      (p.eql/process newenv config targets))
-    @(p.a.eql/process newenv config targets)
+    (try @(p.a.eql/process newenv config targets)
+         (catch Exception e
+           (tap> (Throwable->map e))
+           (throw e)))
     newenv))
 
 
