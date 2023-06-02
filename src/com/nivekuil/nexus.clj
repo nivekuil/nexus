@@ -137,9 +137,9 @@ run again."
                            (swap! (::halt-path env) conj kw)
                            (log "leaving" kw)
                            res)
-                         (p/catch' (fn [e]
-                                     (log "Exception in " kw "input:" input " exception: " e)
-                                     (throw (ex-info (str "Exception in " kw) {} e)))))]
+                         (p/catch (fn [e]
+                                    (log "Exception in " kw "input:" input " exception: " e)
+                                    (throw (ex-info (str "Exception in " kw) {} e)))))]
 
              (log "done with" kw)
              p)))))})
