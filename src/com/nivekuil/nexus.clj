@@ -8,7 +8,6 @@
             [com.wsscode.pathom3.connect.planner :as pcp]
             [com.wsscode.pathom3.plugin :as p.plugin]
             [clojure.set :as set]
-            [com.nivekuil.nexus :as nx]
             [clojure.string :as str]
             [clojure.data]
             [promesa.core :as p]
@@ -112,12 +111,12 @@ run again."
              (if (and (= old-input input)
                       (= old-body new-body)
                       #_(= old-config config-str)
-                      (::nx/cache? config (::nx/cache? env true)))
+                      (::cache? config (::cache? env true)))
                (do (log "hit reset cache for" kw)
                    {kw old-result})
                (do
                  (log "stale cache for" kw)
-                 (when (::nx/debug? config)
+                 (when (::debug? config)
                    (when (not= old-body new-body)
                      (log kw "old body:" old-body)
                      (log kw "new body:" new-body))
@@ -129,7 +128,7 @@ run again."
                    (log "halting before restart: " kw)
                    (halt-fn))
                  (let [res (resolve env input)]
-                   (when (::nx/debug? config) (log "debug" node res))
+                   (when (::debug? config) (log "debug" node res))
                    (update-env! res)
                    res))))
            (p/let [p (-> (p/let [res (resolve env input)]
